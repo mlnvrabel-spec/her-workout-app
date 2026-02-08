@@ -6,15 +6,15 @@
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Tréningový Plán</title>
-    
+
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#fff0f5">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    
+
     <link rel="icon" type="image/png" href="icon.png">
     <link rel="apple-touch-icon" href="icon.png">
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Tenor+Sans&family=Outfit:wght@300;400;500;600;700&display=swap"
@@ -930,7 +930,7 @@
             </div>
 
             <div id="settings-panel">
-                <input type="text" id="api-key" placeholder="Enter Gemini API Key..."
+                <input type="password" id="api-key" placeholder="Enter Gemini API Key..."
                     style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--border-glass); margin-bottom: 8px; background: rgba(255,255,255,0.5);">
                 <button onclick="MsCoach.saveKey()"
                     style="padding: 10px 16px; border-radius: 12px; background: var(--accent-primary); color: white; border: none; font-size: 0.85rem; width: 100%;">Save
@@ -1318,139 +1318,143 @@
         };
 
         // ================= MS COACH AI =================
-const MsCoach = {
-    apiKey: '',
+        const MsCoach = {
+            apiKey: '',
 
-    toggle() {
-        const el = document.getElementById('chat-overlay');
-        el.classList.toggle('active');
-    },
+            toggle() {
+                const el = document.getElementById('chat-overlay');
+                el.classList.toggle('active');
+            },
 
-    toggleSettings() {
-        const el = document.getElementById('settings-panel');
-        el.classList.toggle('open');
-    },
-
-    saveKey() {
-        const key = document.getElementById('api-key').value.trim();
-        if (key) {
-            localStorage.setItem('gemini_key', key);
-            this.apiKey = key;
-            MsCoach.toggleSettings();
-            alert("Kľúč uložený! ✅");
-        }
-    },
-
-    async send() {
-        const input = document.getElementById('chat-input');
-        const text = input.value.trim();
-        if (!text) return;
-
-        this.addMsg(text, 'user');
-        input.value = '';
-
-        // 1. Get available keys
-        const primaryKey = this.apiKey || localStorage.getItem('gemini_key');
-        const backupKey = localStorage.getItem('mr_Coach_key'); // Key from Hypertrophy app
-
-        // Initial check
-        if (!primaryKey && !backupKey) {
-            alert("Prosím zadaj API kľúč v nastaveniach (⚙️).");
-            this.toggleSettings();
-            return;
-        }
-
-        // Helper: Try a specific model with a specific key
-        const tryModel = async (modelName, key) => {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: this.buildPrompt(text) }] }]
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                const msg = errorData.error?.message || `HTTP ${response.status}`;
-                const err = new Error(msg);
-                err.status = response.status;
-                throw err;
-            }
-
-            const data = await response.json();
-            if (!data.candidates || !data.candidates[0]) {
-                throw new Error("Invalid response format");
-            }
-            return data.candidates[0].content.parts[0].text;
-        };
-
-        // Helper: Run the waterfall of models
-        const runModelSequence = async (key) => {
-            try { return await tryModel('gemini-1.5-flash', key); } catch (e) {
-                console.warn('1.5 Flash failed:', e);
-                if (e.status === 400 || e.status === 401 || e.status === 403) throw e;
-            }
-            try { return await tryModel('gemini-2.0-flash-exp', key); } catch (e) { console.warn('2.0 Flash Exp failed:', e); }
-            try { return await tryModel('gemini-pro', key); } catch (e) { console.warn('Pro failed:', e); }
-            try { return await tryModel('gemini-2.5-flash', key); } catch (e) { throw e; } // Fallback
-        };
-
-        // Execution Logic
-        try {
-            const keyToUse = primaryKey || backupKey;
-            const reply = await runModelSequence(keyToUse);
-            this.addMsg(reply, 'ai');
-
-            if (!primaryKey && keyToUse === backupKey) {
-                this.apiKey = backupKey;
-            }
-
-        } catch (e) {
-            console.error("Primary attempt failed:", e);
-
-            const isAuthError = e.message.includes('400') || e.message.includes('403') || e.message.includes('API key');
-
-            if (isAuthError && primaryKey && backupKey && primaryKey !== backupKey) {
-                console.log("🔁 Retry with backup key...");
-                try {
-                    const reply = await runModelSequence(backupKey);
-                    this.addMsg(reply, 'ai');
-                    this.addMsg("(Použitý záložný kľúč z druhej aplikácie ✅)", 'system');
-                    this.apiKey = backupKey;
-                    return;
-                } catch (e2) {
-                    this.handleError(e2);
+            toggleSettings() {
+                const el = document.getElementById('settings-panel');
+                el.classList.toggle('open');
+                if (el.classList.contains('open')) {
+                    const stored = localStorage.getItem('gemini_key');
+                    if (stored) document.getElementById('api-key').value = stored;
                 }
-            } else {
-                this.handleError(e);
-            }
-        }
-    },
+            },
 
-    handleError(e) {
-        let userMsg = "Prepáč, nastala chyba spojenia.";
-        if (e.message.includes('400') || e.message.includes('INVALID_ARGUMENT')) {
-            userMsg = "Chyba: Neplatná požiadavka (400). Skontroluj API kľúč.";
-        } else if (e.message.includes('401') || e.message.includes('403') || e.message.includes('API key not valid')) {
-            userMsg = "Chyba: Neplatný API kľúč. Nastav ho prosím v nastaveniach (⚙️).";
-        } else if (e.message.includes('429')) {
-            userMsg = "Chyba: Príliš veľa požiadaviek. Skús to neskôr.";
-        }
-        this.addMsg(userMsg, 'ai');
-    },
+            saveKey() {
+                const key = document.getElementById('api-key').value.trim();
+                if (key) {
+                    localStorage.setItem('gemini_key', key);
+                    this.apiKey = key;
+                    MsCoach.toggleSettings();
+                    alert("Kľúč uložený! ✅");
+                }
+            },
 
-    addMsg(text, role) {
-        const div = document.createElement('div');
-        div.className = `msg ${role}`;
-        div.textContent = text;
-        document.getElementById('chat-body').appendChild(div);
-        document.getElementById('chat-body').scrollTop = 9999;
-    },
+            async send() {
+                const input = document.getElementById('chat-input');
+                const text = input.value.trim();
+                if (!text) return;
 
-    buildPrompt(userText) {
-        const today = App.getCurrentDay();
-        const system = `
+                this.addMsg(text, 'user');
+                input.value = '';
+
+                // 1. Get available keys
+                const primaryKey = this.apiKey || localStorage.getItem('gemini_key');
+                const backupKey = localStorage.getItem('mr_Coach_key'); // Key from Hypertrophy app
+
+                // Initial check
+                if (!primaryKey && !backupKey) {
+                    alert("Prosím zadaj API kľúč v nastaveniach (⚙️).");
+                    this.toggleSettings();
+                    return;
+                }
+
+                // Helper: Try a specific model with a specific key
+                const tryModel = async (modelName, key) => {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: this.buildPrompt(text) }] }]
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        const msg = errorData.error?.message || `HTTP ${response.status}`;
+                        const err = new Error(msg);
+                        err.status = response.status;
+                        throw err;
+                    }
+
+                    const data = await response.json();
+                    if (!data.candidates || !data.candidates[0]) {
+                        throw new Error("Invalid response format");
+                    }
+                    return data.candidates[0].content.parts[0].text;
+                };
+
+                // Helper: Run the waterfall of models
+                const runModelSequence = async (key) => {
+                    try { return await tryModel('gemini-1.5-flash', key); } catch (e) {
+                        console.warn('1.5 Flash failed:', e);
+                        if (e.status === 400 || e.status === 401 || e.status === 403) throw e;
+                    }
+                    try { return await tryModel('gemini-2.0-flash-exp', key); } catch (e) { console.warn('2.0 Flash Exp failed:', e); }
+                    try { return await tryModel('gemini-pro', key); } catch (e) { console.warn('Pro failed:', e); }
+                    try { return await tryModel('gemini-2.5-flash', key); } catch (e) { throw e; } // Fallback
+                };
+
+                // Execution Logic
+                try {
+                    const keyToUse = primaryKey || backupKey;
+                    const reply = await runModelSequence(keyToUse);
+                    this.addMsg(reply, 'ai');
+
+                    if (!primaryKey && keyToUse === backupKey) {
+                        this.apiKey = backupKey;
+                    }
+
+                } catch (e) {
+                    console.error("Primary attempt failed:", e);
+
+                    const isAuthError = e.message.includes('400') || e.message.includes('403') || e.message.includes('API key');
+
+                    if (isAuthError && primaryKey && backupKey && primaryKey !== backupKey) {
+                        console.log("🔁 Retry with backup key...");
+                        try {
+                            const reply = await runModelSequence(backupKey);
+                            this.addMsg(reply, 'ai');
+                            this.addMsg("(Použitý záložný kľúč z druhej aplikácie ✅)", 'system');
+                            this.apiKey = backupKey;
+                            return;
+                        } catch (e2) {
+                            this.handleError(e2);
+                        }
+                    } else {
+                        this.handleError(e);
+                    }
+                }
+            },
+
+            handleError(e) {
+                let userMsg = "Prepáč, nastala chyba spojenia.";
+                if (e.message.includes('400') || e.message.includes('INVALID_ARGUMENT')) {
+                    userMsg = "Chyba: Neplatná požiadavka (400). Skontroluj API kľúč.";
+                } else if (e.message.includes('401') || e.message.includes('403') || e.message.includes('API key not valid')) {
+                    userMsg = "Chyba: Neplatný API kľúč. Nastav ho prosím v nastaveniach (⚙️).";
+                } else if (e.message.includes('429')) {
+                    userMsg = "Chyba: Príliš veľa požiadaviek. Skús to neskôr.";
+                }
+                this.addMsg(userMsg, 'ai');
+            },
+
+            addMsg(text, role) {
+                const div = document.createElement('div');
+                div.className = `msg ${role}`;
+                div.textContent = text;
+                document.getElementById('chat-body').appendChild(div);
+                document.getElementById('chat-body').scrollTop = 9999;
+            },
+
+            buildPrompt(userText) {
+                const today = App.getCurrentDay();
+                const system = `
                     Si Ms. Coach, priateľská a podporujúca fitness trénerka pre ženy.
                     Odpovedaj v slovenčine.
                     Kontext používateľky:
@@ -1459,9 +1463,9 @@ const MsCoach = {
                     
                     Buď stručná, motivujúca a používaj emoji. Ak sa pýta na techniku, vysvetli ju jednoducho.
                 `;
-        return `${system}\\n\\nUser: ${userText}`;
-    }
-};
+                return `${system}\\n\\nUser: ${userText}`;
+            }
+        };
 
 
         // Init
@@ -1470,7 +1474,4 @@ const MsCoach = {
     </script>
 </body>
 
-
 </html>
-
-
